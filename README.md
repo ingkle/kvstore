@@ -1,1 +1,1 @@
-# slatedb
+# kvstore
