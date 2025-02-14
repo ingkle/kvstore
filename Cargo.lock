@@ -1342,13 +1342,14 @@ dependencies = [
 
 [[package]]
 name = "kvstore"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-std",
  "async-trait",
  "axum",
  "axum-macros",
+ "bytes",
  "bytesize",
  "clap",
  "env_logger",
@@ -1364,6 +1365,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util 0.6.10",
  "tower-http",
+ "url",
 ]
 
 [[package]]

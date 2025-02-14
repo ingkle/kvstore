@@ -1,6 +1,6 @@
 use anyhow::Error;
 use axum::{
-    extract::{DefaultBodyLimit, Path},
+    extract::{DefaultBodyLimit, Path, State},
     routing::{delete, get, post},
     Router,
 };
@@ -8,11 +8,13 @@ use axum_macros::debug_handler;
 use clap::{Args, Command};
 use env_logger::Builder;
 use hyper::Method;
-use kvstore::error::InternalError;
+use kvstore::engine::KVEngine;
+use kvstore::error::AxumError;
 use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::net::SocketAddr;
 use std::panic;
 use std::process;
+use std::sync::Arc;
 use std::thread;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
@@ -25,40 +27,58 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 #[derive(Debug, Args)]
-pub struct SlateDBOption {
+pub struct KVStoreOption {
     #[arg(short = 'l', long, help = "Log filters")]
     logfilter: Option<String>,
 
     #[arg(short = 'n', long, help = "Listen address")]
     listen: Option<String>,
+
+    #[arg(short = 'u', long, help = "Store url")]
+    url: Option<String>,
 }
 
 #[debug_handler]
-async fn handle_keys_get(Path(key): Path<String>) -> Result<Vec<u8>, InternalError> {
+async fn handle_keys_get(
+    State(engine): State<Arc<KVEngine>>,
+    Path(key): Path<String>,
+) -> Result<Vec<u8>, AxumError> {
     log::info!("keys@get={}", key);
 
-    let value = "value";
-
-    Ok(value.into())
+    match engine.get(key.as_bytes()).await? {
+        Some(value) => Ok(value.to_vec()),
+        None => Err(AxumError::NotFound(format!("no {} key", key))),
+    }
 }
 
 #[debug_handler]
-async fn handle_keys_post(Path(key): Path<String>, body: String) -> Result<(), InternalError> {
+async fn handle_keys_post(
+    State(engine): State<Arc<KVEngine>>,
+    Path(key): Path<String>,
+    body: String,
+) -> Result<(), AxumError> {
     log::info!("keys@post={}={}", key, body);
+
+    engine.set(key.as_bytes(), body.as_bytes()).await?;
 
     Ok(())
 }
 
 #[debug_handler]
-async fn handle_keys_delete(Path(key): Path<String>) -> Result<(), InternalError> {
+async fn handle_keys_delete(
+    State(engine): State<Arc<KVEngine>>,
+    Path(key): Path<String>,
+) -> Result<(), AxumError> {
     log::info!("keys@delete={}", key);
+
+    engine.delete(key.as_bytes()).await?;
 
     Ok(())
 }
 
 fn main() -> Result<(), Error> {
     let cmd = Command::new("KVStore");
-    let cmd = SlateDBOption::augment_args(cmd);
+    let cmd = KVStoreOption::augment_args(cmd);
     let args = cmd.get_matches();
 
     if let Some(filter) = args.get_one::<String>("logfilter") {
@@ -113,13 +133,17 @@ fn main() -> Result<(), Error> {
 
         let compression = CompressionLayer::new();
 
+        let engine = KVEngine::try_new(args.get_one::<String>("url").cloned()).await?;
+        let engine = Arc::new(engine);
+
         let router = Router::new()
             .route("/keys/:key", get(handle_keys_get))
             .route("/keys/:key", post(handle_keys_post))
             .route("/keys/:key", delete(handle_keys_delete))
             .layer(cors)
             .layer(compression)
-            .layer(DefaultBodyLimit::disable());
+            .layer(DefaultBodyLimit::disable())
+            .with_state(engine);
 
         log::info!("listening on {:?}", listen);
 
