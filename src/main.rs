@@ -8,8 +8,8 @@ use axum_macros::debug_handler;
 use clap::{Args, Command};
 use env_logger::Builder;
 use hyper::Method;
-use kvstore::engine::KVEngine;
 use kvstore::error::AxumError;
+use kvstore::store::{KVStore, KVStoreRef};
 use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::net::SocketAddr;
 use std::panic;
@@ -40,12 +40,12 @@ pub struct KVStoreOption {
 
 #[debug_handler]
 async fn handle_keys_get(
-    State(engine): State<Arc<KVEngine>>,
+    State(store): State<Arc<KVStoreRef>>,
     Path(key): Path<String>,
 ) -> Result<Vec<u8>, AxumError> {
     log::info!("keys@get={}", key);
 
-    match engine.get(key.as_bytes()).await? {
+    match store.get(key.as_bytes()).await? {
         Some(value) => Ok(value.to_vec()),
         None => Err(AxumError::NotFound(format!("no {} key", key))),
     }
@@ -53,25 +53,25 @@ async fn handle_keys_get(
 
 #[debug_handler]
 async fn handle_keys_post(
-    State(engine): State<Arc<KVEngine>>,
+    State(store): State<Arc<KVStoreRef>>,
     Path(key): Path<String>,
     body: String,
 ) -> Result<(), AxumError> {
     log::info!("keys@post={}={}", key, body);
 
-    engine.set(key.as_bytes(), body.as_bytes()).await?;
+    store.set(key.as_bytes(), body.as_bytes()).await?;
 
     Ok(())
 }
 
 #[debug_handler]
 async fn handle_keys_delete(
-    State(engine): State<Arc<KVEngine>>,
+    State(store): State<Arc<KVStoreRef>>,
     Path(key): Path<String>,
 ) -> Result<(), AxumError> {
     log::info!("keys@delete={}", key);
 
-    engine.delete(key.as_bytes()).await?;
+    store.delete(key.as_bytes()).await?;
 
     Ok(())
 }
@@ -133,8 +133,8 @@ fn main() -> Result<(), Error> {
 
         let compression = CompressionLayer::new();
 
-        let engine = KVEngine::try_new(args.get_one::<String>("url").cloned()).await?;
-        let engine = Arc::new(engine);
+        let store = KVStore::try_new(args.get_one::<String>("url").cloned()).await?;
+        let store = Arc::new(store);
 
         let router = Router::new()
             .route("/keys/:key", get(handle_keys_get))
@@ -143,7 +143,7 @@ fn main() -> Result<(), Error> {
             .layer(cors)
             .layer(compression)
             .layer(DefaultBodyLimit::disable())
-            .with_state(engine);
+            .with_state(store);
 
         log::info!("listening on {:?}", listen);
 

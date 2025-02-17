@@ -1,4 +1,6 @@
+use crate::store::KVStoreImpl;
 use anyhow::{anyhow, Error};
+use async_trait::async_trait;
 use bytes::Bytes;
 use object_store::aws::{AmazonS3Builder, S3ConditionalPut};
 use object_store::local::LocalFileSystem;
@@ -10,21 +12,12 @@ use std::sync::Arc;
 use url::Url;
 
 #[derive(Clone)]
-pub struct KVEngine {
+pub struct KVSlateDB {
     db: Arc<Db>,
 }
 
-impl KVEngine {
-    pub async fn try_new(url: Option<String>) -> Result<Self, Error> {
-        let url = url.unwrap_or("/tmp/kvstore".into());
-        let url = match Url::parse(&url) {
-            Ok(url) => url,
-            Err(url::ParseError::RelativeUrlWithoutBase) => {
-                Url::from_file_path(&url).map_err(|_| anyhow!("could not parse relative path"))?
-            }
-            Err(err) => return Err(err.into()),
-        };
-
+impl KVSlateDB {
+    pub async fn try_new(url: Url) -> Result<Self, Error> {
         let scheme = url.scheme();
         let store: Arc<dyn ObjectStore> = match scheme {
             "s3" => {
@@ -46,28 +39,31 @@ impl KVEngine {
         let options = DbOptions::default();
         let db = Db::open_with_opts(path, options, store).await?;
 
-        Ok(KVEngine { db: Arc::new(db) })
+        Ok(KVSlateDB { db: Arc::new(db) })
     }
+}
 
-    pub async fn set(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
+#[async_trait]
+impl KVStoreImpl for KVSlateDB {
+    async fn set(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.db.put(key, value).await?;
 
         Ok(())
     }
 
-    pub async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, Error> {
+    async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, Error> {
         let value = self.db.get(key).await?;
 
         Ok(value)
     }
 
-    pub async fn delete(&self, key: &[u8]) -> Result<(), Error> {
+    async fn delete(&self, key: &[u8]) -> Result<(), Error> {
         self.db.delete(key).await?;
 
         Ok(())
     }
 
-    pub async fn flush(&self) -> Result<(), Error> {
+    async fn flush(&self) -> Result<(), Error> {
         self.db.flush().await?;
 
         Ok(())
