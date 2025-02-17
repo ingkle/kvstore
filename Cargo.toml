@@ -19,6 +19,7 @@ anyhow = "1"
 url = "2.3"
 bytes = "1"
 bytesize = "1.3.0"
+reqwest = { version = "0.12.5" }
 axum = { version = "0.7", features = ["multipart"] }
 axum-macros = "0.4"
 tower-http = { version = "0.5.1", features = ["cors", "compression-gzip", "trace"] }

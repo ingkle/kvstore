@@ -1,3 +1,4 @@
+use crate::stores::restdb::KVRestDB;
 use crate::stores::slatedb::KVSlateDB;
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
@@ -21,13 +22,13 @@ impl KVStore {
         };
 
         let scheme = url.scheme();
-        let store = match scheme {
-            "s3" => KVSlateDB::try_new(url).await?,
-            "file" => KVSlateDB::try_new(url).await?,
+        let store: KVStoreRef = match scheme {
+            "s3" | "file" => Box::new(KVSlateDB::try_new(url).await?),
+            "http" | "https" => Box::new(KVRestDB::try_new(url).await?),
             _ => return Err(anyhow!("invalid store scheme")),
         };
 
-        Ok(Box::new(store))
+        Ok(store)
     }
 }
 
