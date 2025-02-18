@@ -12,6 +12,9 @@ RUN cargo build --release
 
 FROM ubuntu
 
+RUN apt-get update
+RUN apt-get install -y ca-certificates
+
 WORKDIR /opt
 
 COPY --from=builder /build/target/release/kvstore .
